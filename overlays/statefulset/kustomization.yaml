@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- ../../base
+
+patchesStrategicMerge:
+- |-
+  apiVersion: apps/v1
+  kind: StatefulSet
+  metadata:
+    name: netprobe-statefulset
+  spec:
+    template:
+      spec:
+        containers:
+        - name: netprobe
+          env:
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+        - name: collection-agent
+          env:
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName

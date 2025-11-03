@@ -1,0 +1,17 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: netprobe-clusterrolebinding
+  labels:
+    app: netprobe
+    chart: netprobe-1.0.0
+    release: netprobe
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: netprobe-clusterrole
+subjects:
+- kind: ServiceAccount
+  name: netprobe-serviceaccount
+  namespace: $(NETPROBE_NAMESPACE)

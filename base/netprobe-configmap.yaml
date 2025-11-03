@@ -1,0 +1,356 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: netprobe-config
+  labels:
+    app: netprobe
+    chart: netprobe-1.0.0
+    release: netprobe
+    heritage: Helm
+
+data:
+  config.yaml: |
+    plugin-directory: /opt/netprobe/plugins
+    self-metrics:
+      enabled: true
+      custom-dimensions:
+        cluster: $(CLUSTER_NAME)
+        namespace: $(NETPROBE_NAMESPACE)
+    reporters:
+      - type: TCP
+        hostname: gateway.netprobe.svc.cluster.local
+        port: 7036
+        secure: true
+        protocols:
+          - TLSv1.2
+        trust-chain-file: /secrets/gateway/tls.crt
+        certificate-file: /secrets/netprobe/tls.crt
+        private-key-file: /secrets/netprobe/tls.key
+        private-key-password: $(GATEWAY_PASSWORD)
+    store-and-forward:
+      directory: /var/lib/netprobe/store
+    outbound:
+      routes:
+        - matchers:
+            - dimensions:
+                namespace: $(NETPROBE_NAMESPACE)
+          target:
+            type: gRPC
+            hostname: gateway.netprobe.svc.cluster.local
+            port: 7040
+            secure: true
+            authentication:
+              username: reporter
+              password: $(REPORTER_PASSWORD)
+            tls:
+              protocols:
+                - TLSv1.2
+              trust-chain-file: /secrets/gateway/tls.crt
+              certificate-file: /secrets/netprobe/tls.crt
+              private-key-file: /secrets/netprobe/tls.key
+        - matchers:
+            - dimensions:
+                namespace: "*"
+          target:
+            type: TCP
+            hostname: gateway.netprobe.svc.cluster.local
+            port: 7036
+            secure: true
+            protocols:
+              - TLSv1.2
+            trust-chain-file: /secrets/gateway/tls.crt
+            certificate-file: /secrets/netprobe/tls.crt
+            private-key-file: /secrets/netprobe/tls.key
+            private-key-password: $(GATEWAY_PASSWORD)
+    collectors:
+      - name: kube-metrics
+        type: KubernetesMetricsCollector
+        exclude-non-namespaced-resources: true
+        namespaces:
+          - $(NETPROBE_NAMESPACE)
+        enable-event-collection: true
+        enrichment-processors:
+          - type: KubernetesEnrichmentProcessor
+            custom-dimensions:
+              cluster: $(CLUSTER_NAME)
+              namespace: $(NETPROBE_NAMESPACE)
+      - name: kube-logs
+        type: KubernetesLogCollector
+        readMode: tail
+        log-directory: /var/log/pods
+        persistence-directory: /var/lib/netprobe/logs
+        read-from-beginning: false
+        namespaces:
+          - $(NETPROBE_NAMESPACE)
+        enrichment-processors:
+          - type: KubernetesEnrichmentProcessor
+            custom-dimensions:
+              cluster: $(CLUSTER_NAME)
+              namespace: $(NETPROBE_NAMESPACE)
+      - name: statsd
+        type: StatsdCollector
+        stale-metrics-threshold: 300
+        transport-protocol: UDP
+        listen-port: 8125
+        enrichment-processors:
+          - type: KubernetesEnrichmentProcessor
+            custom-dimensions:
+              cluster: $(CLUSTER_NAME)
+              namespace: $(NETPROBE_NAMESPACE)
+      - name: opentelemetry
+        type: OpenTelemetryCollector
+        port: 4317
+        queue-capacity: 1000
+        thread-pool-size: 10
+        tls:
+          protocols:
+            - TLSv1.2
+          trust-chain-file: /secrets/otel/tls.crt
+          certificate-file: /secrets/otel/tls.crt
+          private-key-file: /secrets/otel/tls.key
+        emit-trace-metrics: true
+        trace-metrics-interval: 60
+        trace-metrics-expiry: 300
+        resource-attributes:
+          - service.name
+          - service.namespace
+          - service.instance.id
+        scope-attributes:
+          - otel.scope.name
+          - otel.scope.version
+        units:
+          - bytes
+          - microseconds
+        enrichment-processors:
+          - type: KubernetesEnrichmentProcessor
+            custom-dimensions:
+              cluster: $(CLUSTER_NAME)
+              namespace: $(NETPROBE_NAMESPACE)
+      - name: fluentd
+        type: FluentdCollector
+        port: 24224
+        acceptor-thread-pool-size: 2
+        worker-thread-pool-size: 2
+        tls:
+          protocols:
+            - TLSv1.2
+          trust-chain-file: /secrets/fluentd/tls.crt
+          certificate-file: /secrets/fluentd/tls.crt
+          private-key-file: /secrets/fluentd/tls.key
+        name-key: "message"
+        tag-mapping:
+          - tag: "app.*"
+            dimension: "application"
+        message-key: "log"
+        dimensions:
+          - source: "kubernetes.namespace_name"
+            target: "namespace"
+          - source: "kubernetes.pod_name"
+            target: "pod"
+        severity-mapping:
+          - source: "info"
+            target: "informational"
+        enrichment-processors:
+          - type: KubernetesEnrichmentProcessor
+            custom-dimensions:
+              cluster: $(CLUSTER_NAME)
+              namespace: $(NETPROBE_NAMESPACE)
+      - name: prometheus-remote-write
+        type: PrometheusRemoteWriteCollector
+        port: 9090
+        acceptor-thread-pool-size: 2
+        worker-thread-pool-size: 2
+        tls:
+          protocols:
+            - TLSv1.2
+          trust-chain-file: /secrets/prometheus-remote-write/tls.crt
+          certificate-file: /secrets/prometheus-remote-write/tls.crt
+          private-key-file: /secrets/prometheus-remote-write/tls.key
+      - name: alertmanager-webhook
+        type: AlertmanagerWebhookCollector
+        port: 9093
+        acceptor-thread-pool-size: 2
+        worker-thread-pool-size: 2
+        firing-severities:
+          - critical
+          - warning
+        tls:
+          protocols:
+            - TLSv1.2
+          trust-chain-file: /secrets/prometheus-alertmanager/tls.crt
+          certificate-file: /secrets/prometheus-alertmanager/tls.crt
+          private-key-file: /secrets/prometheus-alertmanager/tls.key
+      - name: prometheus-scraper
+        type: PrometheusScraperCollector
+        collection-interval: 60
+        connection-timeout: 10
+        max-content-length: 1048576
+        scrape-targets:
+          static-targets:
+            - host: localhost
+              port: 9090
+              path: /metrics
+              tls:
+                protocols:
+                  - TLSv1.2
+                trust-chain-file: /secrets/prom-scrape-localhost-9090/tls.crt
+                certificate-file: /secrets/prom-scrape-localhost-9090/tls.crt
+                private-key-file: /secrets/prom-scrape-localhost-9090/tls.key
+          kube-targets:
+            namespaces:
+              - $(NETPROBE_NAMESPACE)
+            scrape-annotation: prometheus.io/scrape
+            port-annotation: prometheus.io/port
+            path-annotation: prometheus.io/path
+            name-excludes:
+              - go_info
+              - process_start_time_seconds
+            disable-label-publishing: false
+          kube-endpoint-targets:
+            - name: kube-state-metrics
+              path: /metrics
+              namespaces:
+                - kube-system
+              matchers:
+                - service: kube-state-metrics
+              name-excludes:
+                - go_info
+                - process_start_time_seconds
+              tls:
+                protocols:
+                  - TLSv1.2
+                trust-chain-file: /secrets/prom-kube-state-metrics/tls.crt
+                certificate-file: /secrets/prom-kube-state-metrics/tls.crt
+                private-key-file: /secrets/prom-kube-state-metrics/tls.key
+    workflow:
+      store-directory: /var/lib/netprobe/workflow
+      metrics:
+        reporters:
+          - type: TCP
+            hostname: gateway.netprobe.svc.cluster.local
+            port: 7036
+            secure: true
+            protocols:
+              - TLSv1.2
+            trust-chain-file: /secrets/gateway/tls.crt
+            certificate-file: /secrets/netprobe/tls.crt
+            private-key-file: /secrets/netprobe/tls.key
+            private-key-password: $(GATEWAY_PASSWORD)
+        store:
+          type: memory
+        processors:
+          - type: KubernetesEnrichmentProcessor
+            custom-dimensions:
+              cluster: $(CLUSTER_NAME)
+              namespace: $(NETPROBE_NAMESPACE)
+      events:
+        reporters:
+          - type: TCP
+            hostname: gateway.netprobe.svc.cluster.local
+            port: 7036
+            secure: true
+            protocols:
+              - TLSv1.2
+            trust-chain-file: /secrets/gateway/tls.crt
+            certificate-file: /secrets/netprobe/tls.crt
+            private-key-file: /secrets/netprobe/tls.key
+            private-key-password: $(GATEWAY_PASSWORD)
+        store:
+          type: memory
+        processors:
+          - type: KubernetesEnrichmentProcessor
+            custom-dimensions:
+              cluster: $(CLUSTER_NAME)
+              namespace: $(NETPROBE_NAMESPACE)
+      attributes:
+        reporters:
+          - type: TCP
+            hostname: gateway.netprobe.svc.cluster.local
+            port: 7036
+            secure: true
+            protocols:
+              - TLSv1.2
+            trust-chain-file: /secrets/gateway/tls.crt
+            certificate-file: /secrets/netprobe/tls.crt
+            private-key-file: /secrets/netprobe/tls.key
+            private-key-password: $(GATEWAY_PASSWORD)
+        store:
+          type: memory
+        processors:
+          - type: KubernetesEnrichmentProcessor
+            custom-dimensions:
+              cluster: $(CLUSTER_NAME)
+              namespace: $(NETPROBE_NAMESPACE)
+      traces:
+        enabled: false
+      logs:
+        reporters:
+          - type: TCP
+            hostname: gateway.netprobe.svc.cluster.local
+            port: 7036
+            secure: true
+            protocols:
+              - TLSv1.2
+            trust-chain-file: /secrets/gateway/tls.crt
+            certificate-file: /secrets/netprobe/tls.crt
+            private-key-file: /secrets/netprobe/tls.key
+            private-key-password: $(GATEWAY_PASSWORD)
+        store:
+          type: memory
+        processors:
+          - type: KubernetesEnrichmentProcessor
+            custom-dimensions:
+              cluster: $(CLUSTER_NAME)
+              namespace: $(NETPROBE_NAMESPACE)
+  logback.xml: |
+    <configuration>
+      <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+          <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+      </appender>
+      <root level="INFO">
+        <appender-ref ref="STDOUT" />
+      </root>
+    </configuration>
+  config.xml: |
+    <config>
+      <selfAnnounce>
+        <retryInterval>30</retryInterval>
+        <requireReverseConnection>true</requireReverseConnection>
+        <probeName>$(NODE_NAME)</probeName>
+        <userAssignmentAndSnoozeFilenamePrefix>$(NODE_NAME)</userAssignmentAndSnoozeFilenamePrefix>
+        <managedEntities>
+          <entity>
+            <name>$(NODE_NAME)</name>
+            <attributes>
+              <attribute>
+                <name>host</name>
+                <value>$(NODE_NAME)</value>
+              </attribute>
+            </attributes>
+            <types>
+              <type>Host</type>
+            </types>
+          </entity>
+        </managedEntities>
+        <dynamicEntities>
+          <mappingTypes>
+            <mappingType>KUBERNETES_POD</mappingType>
+          </mappingTypes>
+          <collectionAgentParameters>
+            <parameter>
+              <name>namespace</name>
+              <value>$(NETPROBE_NAMESPACE)</value>
+            </parameter>
+          </collectionAgentParameters>
+        </dynamicEntities>
+        <gateways>
+          <gateway>
+            <hostname>gateway.netprobe.svc.cluster.local</hostname>
+            <port>7036</port>
+            <secure>true</secure>
+          </gateway>
+        </gateways>
+      </selfAnnounce>
+    </config>

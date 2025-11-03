@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- netprobe-configmap.yaml
+- netprobe-serviceaccount.yaml
+- netprobe-clusterrole.yaml
+- netprobe-role.yaml
+- netprobe-clusterrolebinding.yaml
+- netprobe-rolebinding.yaml
+- netprobe-daemonset.yaml
+- netprobe-statefulset.yaml
+- collection-agent-pvc.yaml
+- netprobe-store-pvc.yaml
+
+generators:
+- config-generator.yaml
+
+secretGenerator:
+- name: netprobe-secrets
+  envs:
+  - secrets.env
+
+patchesStrategicMerge:
+- patches/netprobe-resources.yaml
+- patches/collection-agent-resources.yaml
+- patches/volume-mounts.yaml
+- patches/security-context.yaml
+- patches/node-affinity.yaml
+- patches/tolerations.yaml
+- patches/pod-annotations.yaml

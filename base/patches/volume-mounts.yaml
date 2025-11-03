@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: netprobe-daemonset
+spec:
+  template:
+    spec:
+      containers:
+      - name: netprobe
+        volumeMounts:
+        - name: config
+          mountPath: /netprobe/config
+        - name: agent-store
+          mountPath: /netprobe/workingDir
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: netprobe-statefulset
+spec:
+  template:
+    spec:
+      containers:
+      - name: netprobe
+        volumeMounts:
+        - name: config
+          mountPath: /netprobe/config
+        - name: netprobe-store
+          mountPath: /netprobe/workingDir
+      - name: collection-agent
+        volumeMounts:
+        - name: config
+          mountPath: /agent/config
+        - name: agent-store
+          mountPath: /agent/workingDir

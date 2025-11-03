@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: netprobe-daemonset
+  labels:
+    app: netprobe
+    chart: netprobe-1.0.0
+    release: netprobe
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: netprobe
+      release: netprobe
+  template:
+    metadata:
+      labels:
+        app: netprobe
+        release: netprobe
+    spec:
+      serviceAccountName: netprobe-serviceaccount
+      containers:
+      - name: netprobe
+        image: netprobe-image
+        imagePullPolicy: IfNotPresent
+        command: ["numactl", "--cpunodebind=0", "--membind=0"]
+        args: ["-c", "/netprobe/config/config.xml"]
+        env:
+        - name: DISABLE_MEM_PROTECTION
+          value: "true"
+        - name: FLUSH_DNS_PERIOD
+          value: "300"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        volumeMounts:
+        - name: config
+          mountPath: /netprobe/config
+        - name: agent-store
+          mountPath: /netprobe/workingDir
+        ports:
+        - containerPort: 7036
+          name: netprobe-port
+        readinessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "test -f /netprobe/workingDir/netprobe.ready"]
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        livenessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "test -f /netprobe/workingDir/netprobe.alive"]
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1"
+      volumes:
+      - name: config
+        configMap:
+          name: netprobe-config
+      - name: agent-store
+        hostPath:
+          path: /var/lib/netprobe
+          type: DirectoryOrCreate

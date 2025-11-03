@@ -1,0 +1,18 @@
+apiVersion: builtin
+kind: ConfigMapGenerator
+metadata:
+  name: netprobe-scripts
+labels:
+  app: netprobe
+  chart: netprobe-1.0.0
+  release: netprobe
+  heritage: Helm
+literals:
+- |
+  wait-for-gateway.sh=#!/bin/bash
+  # Wait for gateway to be ready
+  echo "Waiting for gateway to be ready..."
+  while ! nc -z $GATEWAY_HOST $GATEWAY_PORT; do
+    sleep 1
+  done
+  echo "Gateway is ready!"

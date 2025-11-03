@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: netprobe-store
+  labels:
+    app: netprobe
+    chart: netprobe-1.0.0
+    release: netprobe
+    heritage: Helm
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
