@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: geneos-netprobe-production
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://dev.azure.com/your-organization/your-project/_git/your-geneos-repo
+    path: charts/geneos-netprobe
+    targetRevision: main
+    helm:
+      valueFiles:
+        - ../../environments/values-production.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: geneos-netprobe-production
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
